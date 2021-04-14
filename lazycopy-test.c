@@ -14,6 +14,17 @@ size_t time_us();
 void run_tests(int** originals, int** copies, bool eager);
 
 int main() {
+  chunk_startup();
+  printf("allocating A\n");
+  int* A = chunk_alloc();
+  printf("lazy copying B\n");
+  int* B = chunk_copy_lazy(A);
+  printf("assigning to A and B\n");
+  *A = 1;
+  *B = 1;
+}
+/*
+int main() {
   // Initialize the lazy copying chunk code
   chunk_startup();
 
@@ -42,7 +53,7 @@ int main() {
 
   return 0;
 }
-
+*/
 void run_tests(int** originals, int** copies, bool eager) {
   // Seed the random number generator with a known starting point
   srand(42);
