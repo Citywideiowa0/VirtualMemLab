@@ -13,12 +13,17 @@
 // | Declarations     |
 // +------------------+
 
+void chunk_adds_update(int index);
+void printArr();
+
 void segfault_handler(int, siginfo_t*, void*);
-bool if_writting = false;
-void* chunk_start = NULL;
-void* new_chunk_start = NULL;
-void* chunk_end = NULL;
-void* new_chunk_end = NULL;
+// bool if_writting = false;
+void** chunk_adds = NULL;
+int size = 0;
+// void* chunk_start = NULL;
+// void* new_chunk_start = NULL;
+// void* chunk_end = NULL;
+// void* new_chunk_end = NULL;
 
 // +------------------+--------------------------------------
 // | Functions        |
@@ -106,7 +111,7 @@ void* chunk_copy_lazy(void* chunk) {
     perror("mmap failed in chunk_copy_lazy");
     exit(2);
   }
-  memcpy(new_chunk, chunk, CHUNKSIZE);
+  // memcpy(new_chunk, chunk, CHUNKSIZE);
 
   // 2. Mark both mappings as read-only
   mprotect(chunk, CHUNKSIZE, PROT_READ);
@@ -114,15 +119,18 @@ void* chunk_copy_lazy(void* chunk) {
 
   // 3. Keep some record of both lazy copies so you can make them writable later.
   //    At a minimum, you'll need to know where the chunk begins and ends.
-  chunk_start = chunk;
-  new_chunk_start = new_chunk;
-  chunk_end = (chunk + CHUNKSIZE);
-  new_chunk_end = (new_chunk + CHUNKSIZE);
+  size += 2;
+  chunk_adds = realloc(chunk_adds, size * (sizeof(void*)));
+
+  // Original chunks in even indices
+  chunk_adds[(size - 2)] = chunk;
+  // New Chunks in Odd indices
+  chunk_adds[(size - 1)] = new_chunk;
 
   // Later, if either copy is written to you will need to:
   // 1. Save the contents of the chunk elsewhere (a local array works well)
-  if (if_writting == true) {
-  }
+  // if (if_writting == true) {
+  //}
   // 2. Use mmap to make a writable mapping at the location of the chunk that was written
   // 3. Restore the contents of the chunk to the new writable mapping
 
@@ -134,15 +142,116 @@ void* chunk_copy_lazy(void* chunk) {
 // +------------------+
 
 void segfault_handler(int signal, siginfo_t* info, void* ctx) {
-  printf("SEGFAULT!!!!!\n");
-  if (((intptr_t)info->si_addr < (intptr_t)chunk_end &&
-       (intptr_t)info->si_addr > (intptr_t)chunk_start) ||
-      ((intptr_t)info->si_addr < (intptr_t)new_chunk_end &&
-       (intptr_t)info->si_addr > (intptr_t)new_chunk_start)) {
-    if_writting = true;
-    printf("if_writting: %d\n", if_writting);
-  }
+  // helper variable to remember address later in loop
+  void* address = 0;
+  int regSegfault = 1; /* keeps track of whether or not we found a segfault in a chunk or not */
 
-  // exit code
-  exit(1);
+  ////printf("Entered segfault handler \n");
+  ////printArr();
+
+  // iterate through array of need-to-update chunks
+  for (int i = 0; i < size; i++) {
+    // enter if segfault address is contained by a need-to-update chunk
+    printf("A \n");
+    printf("chunk_adds[%d] = %p\n", i, chunk_adds[i]);
+    printf("sid_addr = %p\n", info->si_addr);
+    if ((intptr_t)chunk_adds[i] <= (intptr_t)info->si_addr &&
+        ((intptr_t)info->si_addr <= ((intptr_t)chunk_adds[i] + CHUNKSIZE))) {
+      regSegfault = 0;
+      // Each lazily copied chunk has a paring.  In the even indices of chunk_adds,
+      //   are pointers to the 'original chunk'.  The odd indices point to the newly
+      //   allocated chunks, 'new chunk'.
+
+      printf("B \n");
+
+      // if 'original chunk'
+      if (i % 2 == 0) {
+        address = chunk_adds[i];
+        printf("C \n");
+        // Check if adjacent need-to-update new chunk exists
+        if ((intptr_t)chunk_adds[i + 1] != 0) {
+          // allocate new mapping for 'new chunk'
+          // TODO: don't allocate r+w space!!!
+          printf("chunk_adds[i + 1] is: %p\n", chunk_adds[i + 1]);
+          // chunk_adds[i + 1] = chunk_alloc();
+          chunk_adds[i + 1] = mmap(chunk_adds[i + 1], CHUNKSIZE, PROT_READ | PROT_WRITE,
+                                   MAP_ANONYMOUS | MAP_SHARED | MAP_FIXED, -1, 0);
+          // copy chunk info to newly mapped space
+          memcpy(chunk_adds[i + 1], address, CHUNKSIZE);
+          ////printf("chunk_adds[i + 1] is (after chunk_alloc()): %p\n", chunk_adds[i + 1]);
+
+          printf("D \n");
+          printArr();
+        } else {
+          ////printf("Updating Array...\n");
+          ////printf("Before update:\n");
+          ////printArr();
+          chunk_adds_update(i);
+          ////printf("After update:\n");
+          ////printArr();
+          ////printf("E \n");
+        }
+        // update chunk_adds to indicate the 'original-chunk' is no longer need-to-update
+        chunk_adds[i] = 0;
+        // change original chunk's permissions to r+wt
+        mprotect(address, CHUNKSIZE, PROT_READ | PROT_WRITE);
+        ////printf("F \n");
+        // break;
+      } else { /* if its a new chunk */
+        address = chunk_adds[i];
+        printf("G \n");
+        // Check if adjacent need-to-update original chunk exists
+        if ((intptr_t)chunk_adds[i - 1] != 0) {
+          // allocate new mapping for 'new chunk'
+          // TODO: don't allocate r+w space!!!
+          address =
+              mmap(address, CHUNKSIZE, PROT_READ, MAP_ANONYMOUS | MAP_SHARED | MAP_FIXED, -1, 0);
+          // address = chunk_alloc();
+          // copy chunk info to newly mapped space
+          memcpy(address, chunk_adds[i - 1], CHUNKSIZE);
+
+          ////printf("H \n");
+        } else {
+          chunk_adds_update(i - 1);
+          ////printf("I \n");
+        }
+        // update chunk_adds to indicate the 'new chunk' is no longer need-to-update
+        printf("making 'new-chunk' = 0\n");
+        chunk_adds[i] = 0;
+        // change original chunk's permissions to r+w
+        mprotect(chunk_adds[i - 1], CHUNKSIZE, PROT_READ | PROT_WRITE);
+        ////printf("J \n");
+        break;
+      }
+    } else {
+      ////printf("M \n");
+      ////printf("segfault elsewhere at %d\n", i);
+      ////exit(1);
+    }
+    ////printf("Array before leaving:\n");
+    ////printArr();
+    break;
+  }
+  if (regSegfault == 1) {
+    printf("Regular Segfault\n");
+    exit(1);
+  }
+}
+
+void chunk_adds_update(int index) {
+  ////printf("Updating...\n");
+  for (int i = index; i < (size - 2); i++) {
+    chunk_adds[i] = chunk_adds[i + 2];
+    ////printf("K \n");
+  }
+  size -= 2;
+  chunk_adds = realloc(chunk_adds, size * (sizeof(intptr_t)));
+  ////printf("L \n");
+}
+
+void printArr() {
+  for (int i = 0; i < size; i++) {
+    printf("chunk_adds[%d]: %p\n", i, chunk_adds[i]);
+  }
+  printf("end of array\n");
 }

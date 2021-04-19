@@ -32,4 +32,7 @@
   "editor.glyphMargin": false,
   "editor.acceptSuggestionOnCommitCharacter": false,
   "editor.find.seedSearchStringFromSelection": false,
+  "files.associations": {
+    "stdbool.h": "c"
+  },
 }

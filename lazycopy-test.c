@@ -15,14 +15,25 @@ void run_tests(int** originals, int** copies, bool eager);
 
 int main() {
   chunk_startup();
-  printf("allocating A\n");
+  printf("allocate A\n");
   int* A = chunk_alloc();
-  printf("lazy copying B\n");
+  printf("A's address (after allocating) : %p\n", A);
+  printf("assign 100 to A\n");
+  *A = 100;
+  printf("A (after assigning): %d\n", *A);
+  printf("lazy copying B...\n");
   int* B = chunk_copy_lazy(A);
-  printf("assigning to A and B\n");
+  printf("B (after lazy copy): %d\n", *B);
+  printf("B's address (after allocating) : %p\n", B);
+  printf("assigning to 1 to A\n");
   *A = 1;
-  *B = 1;
+  printf("assigning 2 to B...\n");
+  *B = 2;
+  printf("A (after all): %d\n", *A);
+  printf("B (after all: %d\n", *B);
+  printArr();
 }
+
 /*
 int main() {
   // Initialize the lazy copying chunk code
@@ -53,7 +64,7 @@ int main() {
 
   return 0;
 }
-*/
+
 void run_tests(int** originals, int** copies, bool eager) {
   // Seed the random number generator with a known starting point
   srand(42);
@@ -122,3 +133,4 @@ size_t time_us() {
   // Convert timeval values to microseconds
   return tv.tv_sec * 1000000 + tv.tv_usec;
 }
+*/

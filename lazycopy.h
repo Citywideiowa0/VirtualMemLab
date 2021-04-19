@@ -16,4 +16,6 @@ void* chunk_copy_eager(void* chunk);
 // This function should return a copy of a chunk created with lazy copying
 void* chunk_copy_lazy(void* chunk);
 
+void printArr();
+
 #endif
