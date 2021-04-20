@@ -25,6 +25,7 @@ int main() {
   int* B = chunk_copy_lazy(A);
   printf("B (after lazy copy): %d\n", *B);
   printf("B's address (after allocating) : %p\n", B);
+  printf("\n\n\n");
   printf("assigning to 1 to A\n");
   *A = 1;
   printf("assigning 2 to B...\n");

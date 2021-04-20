@@ -126,6 +126,8 @@ void* chunk_copy_lazy(void* chunk) {
   chunk_adds[(size - 2)] = chunk;
   // New Chunks in Odd indices
   chunk_adds[(size - 1)] = new_chunk;
+  printf("Adding chunks to global array\n");
+  printArr();
 
   // Later, if either copy is written to you will need to:
   // 1. Save the contents of the chunk elsewhere (a local array works well)
@@ -146,107 +148,138 @@ void segfault_handler(int signal, siginfo_t* info, void* ctx) {
   void* address = 0;
   int regSegfault = 1; /* keeps track of whether or not we found a segfault in a chunk or not */
 
-  ////printf("Entered segfault handler \n");
-  ////printArr();
+  printf("Entered segfault handler \n");
+  printf("sid_addr = %p\n", info->si_addr);
+  printArr();
 
   // iterate through array of need-to-update chunks
   for (int i = 0; i < size; i++) {
     // enter if segfault address is contained by a need-to-update chunk
-    printf("A \n");
+    printf("Entered for loop with i = %d \n", i);
     printf("chunk_adds[%d] = %p\n", i, chunk_adds[i]);
-    printf("sid_addr = %p\n", info->si_addr);
     if ((intptr_t)chunk_adds[i] <= (intptr_t)info->si_addr &&
-        ((intptr_t)info->si_addr <= ((intptr_t)chunk_adds[i] + CHUNKSIZE))) {
+        ((intptr_t)info->si_addr < ((intptr_t)chunk_adds[i] + CHUNKSIZE))) {
       regSegfault = 0;
       // Each lazily copied chunk has a paring.  In the even indices of chunk_adds,
       //   are pointers to the 'original chunk'.  The odd indices point to the newly
       //   allocated chunks, 'new chunk'.
 
-      printf("B \n");
+      printf("Entered if segfault_addr is in a chunk \n");
+
+      printf("has a partner 'new chunk' \n");
+      printf("new-chunk: chunk_adds[i + 1] is [%p]\n", chunk_adds[i + 1]);
+
+      chunk_adds[i + 1] = mmap(chunk_adds[i + 1], CHUNKSIZE, PROT_READ | PROT_WRITE,
+                               MAP_ANONYMOUS | MAP_SHARED | MAP_FIXED, -1, 0);
+
+      // Check for an error
+      if (chunk_adds[i + 1] == MAP_FAILED) {
+        perror("mmap failed in lazy_copy()");
+        exit(2);
+      }
+
+      memcpy(chunk_adds[i + 1], chunk_adds[i], CHUNKSIZE);
+
+      printf("Offending original chunk has no partner\n");
+      chunk_adds_update(i);
 
       // if 'original chunk'
       if (i % 2 == 0) {
-        address = chunk_adds[i];
-        printf("C \n");
+        printf("Offending chunk is an 'original' \n");
         // Check if adjacent need-to-update new chunk exists
         if ((intptr_t)chunk_adds[i + 1] != 0) {
           // allocate new mapping for 'new chunk'
           // TODO: don't allocate r+w space!!!
-          printf("chunk_adds[i + 1] is: %p\n", chunk_adds[i + 1]);
-          // chunk_adds[i + 1] = chunk_alloc();
-          chunk_adds[i + 1] = mmap(chunk_adds[i + 1], CHUNKSIZE, PROT_READ | PROT_WRITE,
-                                   MAP_ANONYMOUS | MAP_SHARED | MAP_FIXED, -1, 0);
-          // copy chunk info to newly mapped space
-          memcpy(chunk_adds[i + 1], address, CHUNKSIZE);
-          ////printf("chunk_adds[i + 1] is (after chunk_alloc()): %p\n", chunk_adds[i + 1]);
 
-          printf("D \n");
+          printf("new-chunk's addr after mapping : [%p]\n", chunk_adds[i + 1]);
+          // copy chunk info to newly mapped space
+          printf("New array:\n");
           printArr();
+          // Overlap check
+
+          if (
+              // [i+1] lower boundary
+              (((intptr_t)chunk_adds[i] <= (intptr_t)chunk_adds[i + 1]) &&
+               ((intptr_t)chunk_adds[i + 1] <= (intptr_t)chunk_adds[i] + CHUNKSIZE)) ||
+              // [i+1] upper boundary
+              (((intptr_t)chunk_adds[i] <= (intptr_t)chunk_adds[i + 1] + CHUNKSIZE) &&
+               ((intptr_t)chunk_adds[i + 1] + CHUNKSIZE >= ((intptr_t)chunk_adds[i] + CHUNKSIZE)))
+
+          ) {
+            printf("Overlapping memory");
+          }
+
+          // update chunk_adds to indicate the 'original-chunk' is no longer need-to-update
+          printf("remove original chunk from global array\n");
+          chunk_adds[i] = 0;
+
         } else {
           ////printf("Updating Array...\n");
           ////printf("Before update:\n");
           ////printArr();
+          printf("Offending original chunk has no partner\n");
           chunk_adds_update(i);
           ////printf("After update:\n");
           ////printArr();
           ////printf("E \n");
         }
-        // update chunk_adds to indicate the 'original-chunk' is no longer need-to-update
-        chunk_adds[i] = 0;
+
         // change original chunk's permissions to r+wt
         mprotect(address, CHUNKSIZE, PROT_READ | PROT_WRITE);
-        ////printf("F \n");
-        // break;
+
       } else { /* if its a new chunk */
         address = chunk_adds[i];
-        printf("G \n");
+        printf("Offending chunk is a 'new' chunk \n");
+        printf("\n");
         // Check if adjacent need-to-update original chunk exists
         if ((intptr_t)chunk_adds[i - 1] != 0) {
           // allocate new mapping for 'new chunk'
-          // TODO: don't allocate r+w space!!!
-          address =
-              mmap(address, CHUNKSIZE, PROT_READ, MAP_ANONYMOUS | MAP_SHARED | MAP_FIXED, -1, 0);
-          // address = chunk_alloc();
-          // copy chunk info to newly mapped space
-          memcpy(address, chunk_adds[i - 1], CHUNKSIZE);
+          printf("has a partner 'original chunk' \n");
+          printf("original-chunk: chunk_adds[i - 1] is [%p]\n", chunk_adds[i - 1]);
+          chunk_adds[i] = mmap(chunk_adds[i], CHUNKSIZE, PROT_READ | PROT_WRITE,
+                               MAP_ANONYMOUS | MAP_SHARED | MAP_FIXED, -1, 0);
+          printf("new-chunk's addr after mapping : [%p]\n", chunk_adds[i + 1]);
 
-          ////printf("H \n");
+          // copy chunk info to newly mapped space
+          memcpy(chunk_adds[i], chunk_adds[i - 1], CHUNKSIZE);
+
+          // update chunk_adds to indicate the 'new chunk' is no longer need-to-update
+          printf("remove original chunk from global array\n");
+          chunk_adds[i] = 0;
         } else {
+          printf("Offending new chunk has no partner\n");
           chunk_adds_update(i - 1);
           ////printf("I \n");
         }
-        // update chunk_adds to indicate the 'new chunk' is no longer need-to-update
-        printf("making 'new-chunk' = 0\n");
-        chunk_adds[i] = 0;
+
         // change original chunk's permissions to r+w
-        mprotect(chunk_adds[i - 1], CHUNKSIZE, PROT_READ | PROT_WRITE);
-        ////printf("J \n");
-        break;
+        mprotect(chunk_adds[i], CHUNKSIZE, PROT_READ | PROT_WRITE);
       }
-    } else {
-      ////printf("M \n");
-      ////printf("segfault elsewhere at %d\n", i);
-      ////exit(1);
+      printf("Break out of big for-loop\n");
+      break;
     }
-    ////printf("Array before leaving:\n");
-    ////printArr();
-    break;
   }
   if (regSegfault == 1) {
     printf("Regular Segfault\n");
     exit(1);
   }
+
+  printf("Exiting Segfault handler\n");
 }
 
 void chunk_adds_update(int index) {
-  ////printf("Updating...\n");
+  if (index % 2 != 0) index -= 1;
+
+  printf("Updating...\n");
+  printf("removing chunk_adds[%index]: %p\n", index, chunk_adds[index]);
+  printf("     and chunk_adds[%index]: %p\n", index + 1, chunk_adds[index + 1]);
   for (int i = index; i < (size - 2); i++) {
     chunk_adds[i] = chunk_adds[i + 2];
-    ////printf("K \n");
   }
   size -= 2;
   chunk_adds = realloc(chunk_adds, size * (sizeof(intptr_t)));
-  ////printf("L \n");
+  printf("new Array:\n");
+  printArr();
 }
 
 void printArr() {
